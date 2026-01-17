@@ -77,7 +77,7 @@ Regions that require modification for additional species are marked with: MIXTUR
 
 ### 5. Spatially inhomogeneous single-component gas (CUDA)
 
-**File:** `local_cuda.cu`
+**File:** `localized_cuda.cu`
 
 - Spatial domain divided into cells
 - Each cell is treated as locally equilibrated
@@ -92,7 +92,7 @@ This solver allows the study of local transport properties in non-uniform system
 
 ### 6. Spatially inhomogeneous multi-component gas (CUDA)
 
-**File:** `local_mixture_cuda.cu`
+**File:** `localized_mixture_cuda.cu`
 
 - Extension of the local solver to multi-component gases
 - Species-dependent masses and cross sections
