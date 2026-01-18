@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <omp.h>
 #include <time.h>
 #include <curand.h>
 #include <curand_kernel.h>
@@ -382,7 +381,11 @@ int main(void) {
     ParticleSystem* sys_dev;
     Particle* part_dev;
     
-    double t0 = omp_get_wtime();
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start, 0);
 
     initialize_particles(&sys_host);
     cudaMalloc(&sys_dev, sizeof(ParticleSystem));
@@ -412,8 +415,14 @@ int main(void) {
     cudaMemcpy(&sys_host, sys_dev, sizeof(ParticleSystem), cudaMemcpyDeviceToHost);
     double integral = correlator_integral(observable);
 
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, start, stop);
+
     printf("Eta = %f\n", sys_host.V / TEMPERATURE * integral * DT);
-    printf("Runtime = %f s\n", omp_get_wtime() - t0);
+    printf("Kernel time: %.3f ms\n", ms);
     printf("Collision rate = %f\n", sys_host.coll_count/(double)NT);
 
     cudaFree(part_dev);
