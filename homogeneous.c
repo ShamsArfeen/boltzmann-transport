@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <omp.h>
 #include <time.h>
 
 /* ============================================================
@@ -305,19 +304,21 @@ int main(void) {
 
     double observable[NT];
 
-    double t0 = omp_get_wtime();
+    clock_t start = clock();
     int coll_count = 0;
     for (int t = 0; t < NT; t++) {
-        // free_stream(&sys);
+        free_stream(&sys);
         coll_count += collide_monte_carlo(&sys);
 
         // For any other observable change the definition here
         observable[t] = shear_stress_tensor_xy(&sys);
     }
     double integral = correlator_integral(observable);
+    clock_t end = clock();
+    double elapsed_ms = (double)(end - start) * 1000.0 / CLOCKS_PER_SEC;
 
     printf("Eta = %f\n", sys.V / TEMPERATURE * integral * DT);
-    printf("Runtime = %f s\n", omp_get_wtime() - t0);
+    printf("Elapsed time: %.3f ms\n", elapsed_ms);
     printf("Collision rate = %f\n", coll_count/(double)NT);
 
     free(sys.part);
