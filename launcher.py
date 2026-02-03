@@ -11,7 +11,7 @@ import time
 import multiprocessing as mp
 
 
-events =    20
+events =    5
 Npart =     512
 Nt =        50_000
 
@@ -33,13 +33,11 @@ def COMPILE_CUDA(solver):
             ]
 
 solver = "mixture.c"
-SRC_CU = "/content/boltzmann-transport/" + solver
+SRC_CU = "/content/boltzmann_transport/" + solver
 
 def run_single_event(args):
     x1, T, s11, s22, s12, m1, m2, observable = args
     x2 =  1.0 - x1
-    s_eff =     (x1**2)*s11 + (x2**2)*s22 + 2*s12*x1*x2
-
     workdir = tempfile.mkdtemp(prefix=observable + "_")
 
     try:
@@ -72,9 +70,9 @@ def run_single_event(args):
         content[27] = f"double DT = 0.001;\n"
 
         if observable == "shear":
-            content[355] = "observable[t] = shear_stress_tensor_xy(&sys_host);"
+            content[355] = "observable[t] = shear_stress_tensor_xy(&sys);\n"
         elif observable == "bulk":
-            content[355] = "observable[t] = bulk_viscous_pressure(&sys_host);"
+            content[355] = "observable[t] = bulk_viscous_pressure(&sys);\n"
 
         content[353] = "if (t == 100 && DT < 1e7) {if (coll_count/(double)NPART < 5) {t = 0;DT *= 2.0;coll_count = 0;}}\n"
 
@@ -137,11 +135,21 @@ def plot_avg_corr(time, corr, err):
     plt.grid(True)
     plt.show()
 
+x1 = 0.5 
+T = 0.5
+mass1 = 0.5
+mass2 = 0.5
+s11 = 0.1
+s22 = 0.3
+s12 = 0.6
+observable = "shear"
+err = None
+eta = None
 
-def launch_simulation(x1, T, s11,s22,s12, mass1, mass2, observable="shear"):
+def main():
+    global eta, err
     start = time.time()
     with mp.Pool(processes=events) as pool:
-        # launch parallel events
         args = [(x1, T, s11,s22,s12, mass1, mass2, observable) for _ in range(events)]
         output = pool.map(run_single_event, args)
         dfs, res = zip(*output)
@@ -154,11 +162,14 @@ def launch_simulation(x1, T, s11,s22,s12, mass1, mass2, observable="shear"):
         plot_avg_corr(t, mean_corr, err_corr)
 
         res = np.array(res)
-        mean = np.mean(res)
-        std  = np.std(res, ddof=1) / np.sqrt(events)
+        eta = np.mean(res)
+        err  = np.std(res, ddof=1) / np.sqrt(events)
 
-        print(f"x1={x1}, m1={mass1},m2={mass2}, T={T}, s11={s11},s22={s22},s12={s12}, eta={mean:.6f}, err={std:.6f}")
-
-        return mean, std
     end = time.time()
+    print(f"x1={x1}, m1={mass1},m2={mass2}, T={T}, s11={s11},s22={s22},s12={s12}, eta={eta:.6f}, err={err:.6f}")
     print(f"Time: {end-start} s")
+    return eta, err
+
+
+if __name__ == "__main__":
+    main()
