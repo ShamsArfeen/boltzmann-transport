@@ -263,25 +263,35 @@ __global__ void collide_monte_carlo(ParticleSystem *sys, curandStatePhilox4_32_1
    Observables
    ============================================================ */
 
-double bulk_viscous_pressure(const ParticleSystem *sys) {
-    double sum = 0.0;
-    for (int i = 0; i < NPART; i++) {
-        double E = particle_energy(&sys->part[i]);
-        sum += \
-                sys->part[i].p.x*sys->part[i].p.x / fmax(E, EPS) \
-            +   sys->part[i].p.y*sys->part[i].p.y / fmax(E, EPS) \
-            +   sys->part[i].p.z*sys->part[i].p.z / fmax(E, EPS);
-    }
-    return sum / (3.0*sys->V);
-}
+__global__ void get_observable(const ParticleSystem *sys, double *observable, int selector, int t) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int threadNum = blockDim.x * gridDim.x;
 
-double shear_stress_tensor_xy(const ParticleSystem *sys) {
-    double sum = 0.0;
-    for (int i = 0; i < NPART; i++) {
+    double sum = 0.;
+    for (int i=tid; i<NPART; i+=threadNum) {
         double E = particle_energy(&sys->part[i]);
-        sum += sys->part[i].p.x * sys->part[i].p.y / fmax(E, EPS);
+
+        // Shear Stress Tensor xy
+        if          (selector == 0)     sum += sys->part[i].p.x * sys->part[i].p.y / fmax(E, EPS);
+
+        // Bulk Viscous Pressure
+        else if     (selector == 1)     sum += (sys->part[i].p.x*sys->part[i].p.x \
+                                            +   sys->part[i].p.y*sys->part[i].p.y \
+                                            +   sys->part[i].p.z*sys->part[i].p.z) / (3*fmax(E, EPS));
     }
-    return sum / sys->V;
+
+    extern __shared__ double s[];
+    s[threadIdx.x] = sum;
+    __syncthreads();
+    for (unsigned int sstep = blockDim.x/2; sstep>0; sstep>>=1) {
+        if (threadIdx.x < sstep) {
+            s[threadIdx.x] += s[threadIdx.x + sstep];
+        }
+        __syncthreads();
+    }
+
+    if (threadIdx.x == 0)
+        atomicAdd(&observable[t], s[0]/sys->V);
 }
 
 /* ============================================================
@@ -327,6 +337,7 @@ __global__ void init_rng(curandStatePhilox4_32_10_t *states, unsigned long seed)
 int main(void) {
     srand(SEED);
     double observable[NT];
+    double *observ_dev;
     
     ParticleSystem sys_host;
     Particle* part_host = (Particle*) malloc(sizeof(Particle) * NPART);
@@ -344,6 +355,7 @@ int main(void) {
     initialize_particles(&sys_host);
     cudaMalloc(&sys_dev, sizeof(ParticleSystem));
     cudaMalloc(&part_dev, sizeof(Particle) * NPART);
+    cudaMalloc(&observ_dev, sizeof(double) * NT);
 
     cudaMemcpy(part_dev, part_host, sizeof(Particle) * NPART, cudaMemcpyHostToDevice);
     sys_host.part = part_dev;
@@ -356,15 +368,14 @@ int main(void) {
     init_rng<<<(NPART+255)/256, 256>>>(d_states, SEED);
 
     for (int t = 0; t < NT; t++) {
-
         free_stream<<<(NPART+255)/256, 256>>>(sys_dev);
         collide_monte_carlo<<<(NPART+255)/256, 256>>>(sys_dev, d_states, rand());
-        cudaMemcpy(part_host, part_dev, sizeof(Particle) * NPART, cudaMemcpyDeviceToHost);
 
-        // For any other observable change the definition here
-        observable[t] = shear_stress_tensor_xy(&sys_host);
+        // For any other observable change the third argument here: 0 for shear stress tensor xy, 1 for bulk viscous pressure
+        get_observable<<<(NPART+255)/256, 256, 256 * sizeof(double)>>>(sys_dev, observ_dev, 0, t);
     }
-    cudaMemcpy(&sys_host, sys_dev, sizeof(ParticleSystem), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&sys_host, sys_dev, sizeof(ParticleSystem), cudaMemcpyDeviceToHost); // get sys_host.coll_count
+    cudaMemcpy(observable, observ_dev, sizeof(double) * NT, cudaMemcpyDeviceToHost);
     double integral = correlator_integral(observable);
 
     cudaEventRecord(stop, 0);
