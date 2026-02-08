@@ -188,7 +188,7 @@ void initialize_particles(ParticleSystem *sys) {
         double beta_e;
         double beta_m = MASS / (double)TEMPERATURE;
         while (1) {
-            beta_e = -log(rng_uniform()*rng_uniform()*rng_uniform() + EPS);
+            beta_e = -log(rng_uniform()) - log(rng_uniform()) - log(rng_uniform());
             if (beta_e < beta_m) continue;
             else if (rng_uniform() < sqrt(beta_e*beta_e - beta_m*beta_m) / beta_e) break;
         }
@@ -366,3 +366,4 @@ int main(void) {
     free(sys.part);
     return 0;
 }
+
